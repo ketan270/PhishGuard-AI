@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+scikit-learn
+pandas
+numpy
+pymongo
+passlib[bcrypt]
+pyjwt
+nltk
+python-multipart
+pydantic[email]
