@@ -1,78 +1,90 @@
-from fastapi import APIRouter, HTTPException, Depends, status
-from pydantic import BaseModel, EmailStr
-from passlib.context import CryptContext
-import jwt
-from datetime import datetime, timedelta
-import os
-from typing import Optional
-from database import users_collection, serialize_doc
+import re
+from datetime import datetime, timezone
+
+import bcrypt
+from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, EmailStr, Field
+
+from database import analysis_collection, users_collection
+from deps import create_access_token, get_current_user_id
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key-for-phishguard-ai")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 1 week
 
 class UserRegister(BaseModel):
-    name: str
+    name: str = Field(min_length=2, max_length=60)
     email: EmailStr
-    password: str
+    password: str = Field(max_length=128)
+
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
-import bcrypt
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+def validate_password(pw: str) -> None:
+    problems = []
+    if len(pw) < 8:
+        problems.append("at least 8 characters")
+    if not re.search(r"[A-Za-z]", pw):
+        problems.append("a letter")
+    if not re.search(r"\d", pw):
+        problems.append("a number")
+    if problems:
+        raise HTTPException(status_code=400, detail="Password must contain " + ", ".join(problems) + ".")
 
-def get_password_hash(password: str) -> str:
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+def hash_password(pw: str) -> str:
+    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(pw: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(pw.encode(), hashed.encode())
+    except ValueError:
+        return False
+
+
+def public_user(doc) -> dict:
+    return {"id": str(doc["_id"]), "name": doc["name"], "email": doc["email"],
+            "created_at": doc.get("created_at").isoformat() if doc.get("created_at") else None}
+
+
+def _token_response(doc) -> dict:
+    token = create_access_token({"sub": doc["email"], "user_id": str(doc["_id"])})
+    return {"access_token": token, "token_type": "bearer", "user": public_user(doc)}
+
 
 @router.post("/register")
 def register(user: UserRegister):
-    if users_collection.find_one({"email": user.email}):
-        raise HTTPException(status_code=400, detail="Email already registered")
-        
-    hashed_password = get_password_hash(user.password)
-    user_dict = {
-        "name": user.name,
-        "email": user.email,
-        "password_hash": hashed_password,
-        "created_at": datetime.utcnow()
-    }
-    
-    result = users_collection.insert_one(user_dict)
-    return {"message": "User registered successfully", "user_id": str(result.inserted_id)}
+    email = user.email.lower()
+    if users_collection.find_one({"email": email}):
+        raise HTTPException(status_code=400, detail="An account with this email already exists.")
+    validate_password(user.password)
+    doc = {"name": user.name.strip(), "email": email, "password_hash": hash_password(user.password),
+           "created_at": datetime.now(timezone.utc)}
+    res = users_collection.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return {"message": "Account created successfully", **_token_response(doc)}
+
 
 @router.post("/login")
 def login(user: UserLogin):
-    db_user = users_collection.find_one({"email": user.email})
-    if not db_user:
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
-        
-    if not verify_password(user.password, db_user["password_hash"]):
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
-        
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": db_user["email"], "user_id": str(db_user["_id"])},
-        expires_delta=access_token_expires
-    )
-    
-    return {
-        "access_token": access_token, 
-        "token_type": "bearer", 
-        "user": {"name": db_user["name"], "email": db_user["email"]}
-    }
+    doc = users_collection.find_one({"email": user.email.lower()})
+    if not doc or not verify_password(user.password, doc["password_hash"]):
+        raise HTTPException(status_code=400, detail="Incorrect email or password.")
+    return _token_response(doc)
+
+
+@router.get("/me")
+def me(user_id: str = Depends(get_current_user_id)):
+    try:
+        doc = users_collection.find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        doc = None
+    if not doc:
+        raise HTTPException(status_code=401, detail="User no longer exists")
+    out = public_user(doc)
+    out["total_scans"] = analysis_collection.count_documents({"user_id": user_id})
+    return out
