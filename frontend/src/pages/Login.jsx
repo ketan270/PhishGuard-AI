@@ -1,73 +1,55 @@
-import { useState, useContext } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import axios from 'axios';
-import { AuthContext } from '../App';
-import { LogIn } from 'lucide-react';
+import { useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { ArrowRight, AlertCircle, Mail } from 'lucide-react'
+import api, { errorMessage } from '../lib/api'
+import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
+import AuthLayout from '../components/AuthLayout'
+import PasswordInput from '../components/PasswordInput'
 
 export default function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const { login } = useContext(AuthContext);
-  const navigate = useNavigate();
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const { login } = useAuth()
+  const toast = useToast()
+  const navigate = useNavigate()
+  const loc = useLocation()
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const submit = async (e) => {
+    e.preventDefault()
+    setError(''); setLoading(true)
     try {
-      const res = await axios.post('http://localhost:8000/api/auth/login', { email, password });
-      login(res.data.access_token, res.data.user);
-      navigate('/dashboard');
+      const { data } = await api.post('/auth/login', { email, password })
+      login(data.access_token, data.user)
+      toast(`Welcome back, ${data.user.name.split(' ')[0]}!`, 'success')
+      navigate(loc.state?.from || '/dashboard', { replace: true })
     } catch (err) {
-      setError(err.response?.data?.detail || 'Login failed');
-    }
-  };
+      setError(errorMessage(err, 'Login failed.'))
+    } finally { setLoading(false) }
+  }
 
   return (
-    <div className="animate-fade-in" style={{ display: 'flex', justifyContent: 'center', paddingTop: '4rem' }}>
-      <div className="glass-panel" style={{ width: '100%', maxWidth: '400px', padding: '2.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '2rem', color: 'var(--primary)' }}>
-          <LogIn size={48} />
+    <AuthLayout title="Welcome back" subtitle="Log in to continue protecting yourself from phishing.">
+      <form onSubmit={submit} className="stack" style={{ gap: 18 }}>
+        {error && <div className="error-box"><AlertCircle size={18} />{error}</div>}
+        <div className="field">
+          <label className="label" htmlFor="email">Email</label>
+          <div className="input-wrap"><Mail size={18} /><input id="email" className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required /></div>
         </div>
-        <h2 style={{ textAlign: 'center', marginBottom: '2rem' }}>Welcome Back</h2>
-        
-        {error && (
-          <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', padding: '0.75rem', borderRadius: '8px', marginBottom: '1.5rem', textAlign: 'center', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-            {error}
-          </div>
-        )}
-        
-        <form onSubmit={handleSubmit}>
-          <div className="input-group">
-            <label>Email Address</label>
-            <input 
-              type="email" 
-              className="input-field" 
-              value={email} 
-              onChange={e => setEmail(e.target.value)} 
-              required 
-              placeholder="you@example.com"
-            />
-          </div>
-          <div className="input-group">
-            <label>Password</label>
-            <input 
-              type="password" 
-              className="input-field" 
-              value={password} 
-              onChange={e => setPassword(e.target.value)} 
-              required 
-              placeholder="••••••••"
-            />
-          </div>
-          <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem', padding: '1rem' }}>
-            Sign In
-          </button>
-        </form>
-        
-        <p style={{ textAlign: 'center', marginTop: '2rem', color: 'var(--text-muted)' }}>
-          Don't have an account? <Link to="/register" style={{ color: 'var(--primary)', fontWeight: '500' }}>Register</Link>
+        <div className="field">
+          <label className="label" htmlFor="password">Password</label>
+          <PasswordInput id="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+        </div>
+        <button className="btn btn-primary" disabled={loading} style={{ marginTop: 6 }}>
+          <span className="shine" />{loading ? <span className="spinner" /> : <>Log in <ArrowRight size={18} /></>}
+        </button>
+        <p className="dim" style={{ textAlign: 'center', fontSize: 14 }}>
+          New to PhishGuard? <Link to="/register" className="grad-text" style={{ fontWeight: 600 }}>Create an account</Link>
         </p>
-      </div>
-    </div>
-  );
+        <p style={{ textAlign: 'center', fontSize: 13 }}><Link to="/" className="mute">← Back to home</Link></p>
+      </form>
+    </AuthLayout>
+  )
 }
