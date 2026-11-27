@@ -1,0 +1,22 @@
+# Render Blueprint for the PhishGuard AI backend (free tier).
+# Render dashboard -> New -> Blueprint -> select this repo.
+services:
+  - type: web
+    name: phishguard-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: SECRET_KEY
+        generateValue: true
+      - key: AUTO_TRAIN          # free instance has too little RAM to retrain
+        value: "0"
+      - key: MONGO_URI           # paste your MongoDB Atlas connection string
+        sync: false
+      - key: CORS_ORIGINS        # e.g. https://phishguard-ai.vercel.app
+        sync: false

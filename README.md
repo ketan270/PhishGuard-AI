@@ -61,6 +61,23 @@ FastAPI then serves the built React app as well, so the whole system runs on htt
 
 ---
 
+## Free deployment (Vercel + Render + MongoDB Atlas)
+
+| Part | Service (free tier) | Config in repo |
+|---|---|---|
+| Frontend (React) | Vercel | `frontend/vercel.json` (SPA rewrites) |
+| Backend (FastAPI + ML) | Render | `render.yaml`, `backend/.python-version` |
+| Database | MongoDB Atlas M0 | via `MONGO_URI` |
+
+1. **Atlas:** create a free M0 cluster, add a database user, allow network access from `0.0.0.0/0`, and copy the connection string.
+2. **Render:** New → Blueprint → pick this repo → set `MONGO_URI` and (after step 3) `CORS_ORIGINS` = your Vercel URL. Check `https://<app>.onrender.com/api/health`.
+3. **Vercel:** New Project → this repo → Root Directory `frontend` → env var `VITE_API_URL=https://<app>.onrender.com` → Deploy.
+
+Render's free tier sleeps after 15 minutes idle; the first request then takes about a minute. Open `/api/health` before a demo.
+Supabase is a Postgres database (plus JavaScript edge functions), so it cannot host this Python/scikit-learn backend.
+
+---
+
 ## Features (mapped to the synopsis modules)
 
 | Module | Implementation |

@@ -26,7 +26,7 @@ export default function Footer() {
             <div className="stack" style={{ gap: 8 }}>
               <Link to="/about">Methodology</Link>
               <Link to="/about#team">Team</Link>
-              <a href="/api/docs" target="_blank" rel="noreferrer">API docs</a>
+              <a href={`${(import.meta.env.VITE_API_URL || "").replace(/\/+$/, "")}/api/docs`} target="_blank" rel="noreferrer">API docs</a>
             </div>
           </div>
         </div>
